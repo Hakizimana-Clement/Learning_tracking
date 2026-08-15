@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learning Daily Check-in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Firebase compat SDKs: no build step, no npm, just script tags -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+<style>
+  :root{
+    --bg: #14161c;
+    --surface: #1c1f27;
+    --surface-2: #21242e;
+    --border: #2b2f3a;
+    --amber: #f2a541;
+    --teal: #5eb1a3;
+    --text: #e8e6df;
+    --text-dim: #9297a6;
+    --text-faint: #5b5f6c;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'Space Grotesk', sans-serif;
+    padding:28px 20px 40px; min-height:100vh;
+  }
+  .wrap{ max-width:520px; margin:0 auto; }
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:0.12em;
+    color:var(--amber); text-transform:uppercase; margin:0 0 6px;
+  }
+  h1{ font-size:22px; font-weight:700; margin:0 0 4px; }
+  .sub{ color:var(--text-dim); font-size:14px; margin:0 0 22px; }
+
+  .owner-bar{
+    display:flex; justify-content:flex-end; align-items:center; gap:8px;
+    font-size:12px; color:var(--text-faint); margin-bottom:14px; min-height:20px;
+  }
+  .owner-bar a, .owner-bar button{
+    background:none; border:none; color:var(--teal); font-size:12px; cursor:pointer;
+    text-decoration:underline; padding:0; font-family:'Space Grotesk',sans-serif;
+  }
+  .owner-form{
+    display:none; gap:6px; background:var(--surface); border:1px solid var(--border);
+    border-radius:8px; padding:10px; margin-bottom:14px;
+  }
+  .owner-form.show{ display:flex; flex-wrap:wrap; }
+  .owner-form input{
+    flex:1; min-width:120px; background:var(--surface-2); border:1px solid var(--border);
+    color:var(--text); border-radius:6px; padding:8px 10px; font-size:13px; font-family:'Space Grotesk',sans-serif;
+  }
+  .owner-form button{
+    background:var(--amber); color:#1a1200; border:none; border-radius:6px; padding:8px 14px;
+    font-size:13px; font-weight:700; cursor:pointer; text-decoration:none;
+  }
+
+  .stat-row{ display:flex; gap:10px; margin-bottom:18px; }
+  .stat{
+    flex:1; background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:14px 14px; text-align:center;
+  }
+  .stat .num{ font-family:'IBM Plex Mono', monospace; font-size:26px; font-weight:600; color:var(--amber); line-height:1.1; }
+  .stat .label{ font-size:11px; color:var(--text-dim); margin-top:4px; }
+
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:18px 20px; margin-bottom:14px;
+  }
+  .card h2{ font-size:13px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-dim); margin:0 0 10px; font-weight:500; }
+
+  .progress-track{ background:var(--surface-2); border-radius:999px; height:8px; overflow:hidden; margin-bottom:6px; }
+  .progress-fill{ background:var(--amber); height:100%; width:0%; transition:width 0.3s ease; }
+  .progress-label{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--text-dim); margin:0 0 14px; }
+
+  #checkinBtn{
+    width:100%; background:var(--amber); color:#1a1200; border:none; border-radius:10px;
+    padding:14px; font-family:'Space Grotesk',sans-serif; font-size:15px; font-weight:700;
+    cursor:pointer; margin-bottom:6px;
+  }
+  #checkinBtn:disabled{ background:var(--surface-2); color:var(--text-faint); cursor:not-allowed; }
+  .checkin-note{ font-size:12px; color:var(--text-faint); text-align:center; margin:0; }
+  .phase-done{
+    font-size:13px; color:var(--teal); background:#16261f; border:1px solid #244037;
+    border-radius:8px; padding:10px 12px; margin:12px 0 0; text-align:center;
+  }
+
+  .msg-block{ font-size:15px; line-height:1.55; }
+  .msg-block .m-label{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--teal); text-transform:uppercase; letter-spacing:0.08em; display:block; margin-bottom:6px; }
+  .msg-block + .msg-block{ margin-top:16px; padding-top:16px; border-top:1px solid var(--border); }
+
+  .heatmap{ display:grid; grid-template-columns:repeat(14, 1fr); gap:4px; }
+  .cell{ aspect-ratio:1; border-radius:3px; background:var(--surface-2); }
+  .cell.on{ background:var(--amber); }
+  .cell.today{ box-shadow:0 0 0 1.5px var(--teal) inset; }
+
+  .phase-track-row{ display:flex; gap:8px; margin-top:2px; }
+  .phase-pill{
+    flex:1; text-align:center; font-size:11px; padding:6px 4px; border-radius:8px;
+    border:1px solid var(--border); color:var(--text-faint); font-family:'IBM Plex Mono', monospace;
+  }
+  .phase-pill.active{ border-color:var(--amber); color:var(--amber); }
+  .phase-pill.done{ border-color:var(--teal); color:var(--teal); }
+
+  .reset{ text-align:center; margin-top:18px; }
+  .reset button{ background:none; border:none; color:var(--text-faint); font-size:12px; text-decoration:underline; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="owner-bar">
+    <span id="ownerStatus">Viewing live</span>
+    <a id="ownerToggle">Sign in as owner</a>
+    <button id="ownerSignOut" style="display:none;">Sign out</button>
+  </div>
+  <div class="owner-form" id="ownerForm">
+    <input type="email" id="ownerEmail" placeholder="email">
+    <input type="password" id="ownerPassword" placeholder="password">
+    <button id="ownerSubmit">Sign in</button>
+  </div>
+
+  <p class="eyebrow">M&amp;D · Motivation &amp; Discipline</p>
+  <h1>Python → AWS cert</h1>
+  <p class="sub" id="countdownText">Loading your target date…</p>
+
+  <div class="stat-row">
+    <div class="stat"><div class="num" id="streakNum">0</div><div class="label">day streak</div></div>
+    <div class="stat"><div class="num" id="totalNum">0</div><div class="label">active days</div></div>
+    <div class="stat"><div class="num" id="daysLeftNum">–</div><div class="label">days to Dec 1</div></div>
+  </div>
+
+  <div class="card">
+    <h2 id="phaseTitle">Phase: Python</h2>
+    <div id="progressWrap">
+      <div class="progress-track"><div class="progress-fill" id="phaseFill"></div></div>
+    </div>
+    <p class="progress-label" id="phaseLabel">0 / 60 days</p>
+
+    <button id="checkinBtn" disabled>Sign in as owner to log a session</button>
+    <p class="checkin-note">Click once per unit of learning — click again the same day if you covered two days' worth of material.</p>
+    <p class="phase-done" id="phaseDoneMsg" style="display:none;"></p>
+
+    <div class="phase-track-row" id="phaseTrackRow"></div>
+  </div>
+
+  <div class="card">
+    <h2>Today's M&amp;D</h2>
+    <div class="msg-block">
+      <span class="m-label">Motivation</span>
+      <span id="motivationMsg"></span>
+    </div>
+    <div class="msg-block">
+      <span class="m-label">Discipline</span>
+      <span id="disciplineMsg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Last 14 weeks</h2>
+    <div class="heatmap" id="heatmap"></div>
+  </div>
+
+  <div class="reset"><button id="resetBtn" style="display:none;">Reset tracker</button></div>
+</div>
+
+<script>
+/* ======================================================================
+   SETUP: paste your firebaseConfig from the Firebase console below.
+   Project settings (gear icon) -> your apps -> Web app -> config object.
+   ====================================================================== */
+const firebaseConfig = {
+ apiKey: "AIzaSyC8owxc8PeLAX4f3u8Z87YJuiFYAUiRoUk",
+  authDomain: "fir-course-f7415.firebaseapp.com",
+  databaseURL: "https://fir-course-f7415-default-rtdb.firebaseio.com",
+  projectId: "fir-course-f7415",
+  storageBucket: "fir-course-f7415.appspot.com",
+  messagingSenderId: "546037943118",
+  appId: "1:546037943118:web:d6d3e0f5b8beddf007ac1f"
+};
+
+ 
+
+const TRACKER_DOC_PATH = "trackers/main"; // single shared document everyone reads
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
+const docRef = db.doc(TRACKER_DOC_PATH);
+
+const TARGET_DATE = new Date('2026-12-01T00:00:00');
+
+const PHASES = [
+  { key:'python', label:'Python',  target:60,   next:'aws' },
+  { key:'aws',    label:'AWS cert', target:null, next:null }
+];
+
+const motivations = [
+  "You already decided the path. Every session today is just proof you meant it.",
+  "December isn't far — it's about 18 focused weeks away. That's nothing compared to years of overtime.",
+  "You're not starting from zero. Jest, Vitest, GCP, Firebase — all of it carries forward.",
+  "The version of you applying in December is being built right now, one unglamorous hour at a time.",
+  "Nobody sees today's hour. Everybody will see December's result.",
+  "You picked this path because it protects your time long-term. Protect today's hour the same way.",
+  "Escaping the overtime cycle isn't a single leap — it's this exact kind of small, boring consistency.",
+  "You don't need to feel motivated to show up. You just need to show up. The motivation follows.",
+  "Every Python script, every AWS module you learn is a brick in the exit door.",
+  "This is the quiet part of the plan. Nobody claps for it. Do it anyway."
+];
+
+const disciplines = [
+  "One hour, done badly, beats zero hours done perfectly. Show up even on the low days.",
+  "Don't compare today's progress to yesterday's mood. Compare it to the calendar.",
+  "If you only have 20 minutes, use 20 minutes. Partial reps still count toward the streak.",
+  "Decision fatigue is real — you already chose the path. Stop re-litigating it daily, just execute.",
+  "Track the process (did I sit down and do it) not just the outcome (do I feel like an expert yet).",
+  "A broken streak isn't failure. Restarting the next day is the actual skill.",
+  "Write code by hand, not just reviewed AI output — the muscle memory is what gets tested in interviews.",
+  "Progress hides in repetition. The 40th practice test matters more than it feels like it does.",
+  "You're allowed a bad day. You're not allowed two in a row.",
+  "The goal isn't to feel ready in December. It's to have done the work regardless of how ready you feel."
+];
+
+function todayStr(d = new Date()){ return d.toISOString().slice(0,10); }
+function daysBetween(a, b){ return Math.round((b - a) / 86400000); }
+function getPhase(key){ return PHASES.find(p => p.key === key) || PHASES[0]; }
+function pickMessage(arr, seed){ return arr[seed % arr.length]; }
+
+let state = { checkins: [], phase: 'python', python: 0, aws: 0 };
+let isOwner = false;
+
+function computeStreak(checkins){
+  if(!checkins || checkins.length === 0) return 0;
+  const set = new Set(checkins);
+  let streak = 0;
+  let cursor = new Date();
+  if(!set.has(todayStr(cursor))) cursor.setDate(cursor.getDate() - 1);
+  while(set.has(todayStr(cursor))){
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function renderHeatmap(checkins){
+  const set = new Set(checkins || []);
+  const el = document.getElementById('heatmap');
+  el.innerHTML = '';
+  const days = 98;
+  const today = new Date();
+  for(let i = days - 1; i >= 0; i--){
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const ds = todayStr(d);
+    const div = document.createElement('div');
+    div.className = 'cell' + (set.has(ds) ? ' on' : '') + (i === 0 ? ' today' : '');
+    div.title = ds;
+    el.appendChild(div);
+  }
+}
+
+function renderPhaseTrack(){
+  const row = document.getElementById('phaseTrackRow');
+  row.innerHTML = '';
+  PHASES.forEach((p, idx) => {
+    const pill = document.createElement('div');
+    const isActive = p.key === state.phase;
+    const isDone = p.target ? (state[p.key] || 0) >= p.target : idx < PHASES.findIndex(x => x.key === state.phase);
+    pill.className = 'phase-pill' + (isActive ? ' active' : '') + (isDone && !isActive ? ' done' : '');
+    pill.textContent = p.label;
+    row.appendChild(pill);
+  });
+}
+
+function render(){
+  const today = new Date();
+  const daysLeft = Math.max(0, daysBetween(today, TARGET_DATE));
+  document.getElementById('daysLeftNum').textContent = daysLeft;
+  document.getElementById('countdownText').textContent =
+    daysLeft > 0
+      ? `${daysLeft} days until the December application window opens.`
+      : `The December window is here — time to start applying.`;
+
+  const seed = Math.floor(today.getTime() / 86400000);
+  document.getElementById('motivationMsg').textContent = pickMessage(motivations, seed);
+  document.getElementById('disciplineMsg').textContent = pickMessage(disciplines, seed + 3);
+
+  document.getElementById('streakNum').textContent = computeStreak(state.checkins);
+  document.getElementById('totalNum').textContent = (state.checkins || []).length;
+
+  const phase = getPhase(state.phase);
+  const count = state[phase.key] || 0;
+  document.getElementById('phaseTitle').textContent = `Phase: ${phase.label}`;
+  if(phase.target){
+    document.getElementById('progressWrap').style.display = '';
+    document.getElementById('phaseFill').style.width = Math.min(100, (count/phase.target)*100) + '%';
+    document.getElementById('phaseLabel').textContent = `${count} / ${phase.target} days`;
+  } else {
+    document.getElementById('progressWrap').style.display = 'none';
+    document.getElementById('phaseLabel').textContent = `${count} sessions logged`;
+  }
+
+  const doneMsgEl = document.getElementById('phaseDoneMsg');
+  if(state.justAdvanced){
+    doneMsgEl.style.display = 'block';
+    doneMsgEl.textContent = `🎉 ${state.justAdvanced} phase complete — now on ${getPhase(state.phase).label}.`;
+  } else {
+    doneMsgEl.style.display = 'none';
+  }
+
+  renderPhaseTrack();
+  renderHeatmap(state.checkins);
+
+  const btn = document.getElementById('checkinBtn');
+  btn.disabled = !isOwner;
+  btn.textContent = isOwner ? 'Log a session' : 'Sign in as owner to log a session';
+  document.getElementById('resetBtn').style.display = isOwner ? 'inline' : 'none';
+}
+
+// Live listener: everyone who opens the page gets real-time updates
+docRef.onSnapshot(snap => {
+  if(snap.exists){
+    state = snap.data();
+  }
+  render();
+}, err => console.error('Firestore read error:', err));
+
+// --- Owner auth ---
+document.getElementById('ownerToggle').addEventListener('click', () => {
+  document.getElementById('ownerForm').classList.toggle('show');
+});
+
+document.getElementById('ownerSubmit').addEventListener('click', async () => {
+  const email = document.getElementById('ownerEmail').value;
+  const password = document.getElementById('ownerPassword').value;
+  try{
+    await auth.signInWithEmailAndPassword(email, password);
+  }catch(e){
+    alert('Sign-in failed: ' + e.message);
+  }
+});
+
+document.getElementById('ownerSignOut').addEventListener('click', () => auth.signOut());
+
+auth.onAuthStateChanged(user => {
+  isOwner = !!user;
+  document.getElementById('ownerStatus').textContent = isOwner ? 'Signed in as owner' : 'Viewing live';
+  document.getElementById('ownerToggle').style.display = isOwner ? 'none' : 'inline';
+  document.getElementById('ownerSignOut').style.display = isOwner ? 'inline' : 'none';
+  document.getElementById('ownerForm').classList.remove('show');
+  render();
+});
+
+// --- Writes (owner only, enforced again server-side by Firestore rules) ---
+async function saveState(newState){
+  try{
+    await docRef.set(newState);
+  }catch(e){
+    console.error('save failed', e);
+    alert('Save failed — are you signed in as owner?');
+  }
+}
+
+document.getElementById('checkinBtn').addEventListener('click', async () => {
+  if(!isOwner) return;
+  const phase = getPhase(state.phase);
+  const next = { ...state };
+  next[phase.key] = (next[phase.key] || 0) + 1;
+  const ds = todayStr();
+  next.checkins = next.checkins || [];
+  if(!next.checkins.includes(ds)) next.checkins.push(ds);
+  delete next.justAdvanced;
+
+  if(phase.target && next[phase.key] >= phase.target && phase.next){
+    next.phase = phase.next;
+    next.justAdvanced = phase.label;
+  }
+  await saveState(next);
+});
+
+document.getElementById('resetBtn').addEventListener('click', async () => {
+  if(!isOwner) return;
+  if(confirm('Reset all streak and progress data for everyone watching?')){
+    await saveState({ checkins: [], phase: 'python', python: 0, aws: 0 });
+  }
+});
+</script>
+</body>
+</html>
